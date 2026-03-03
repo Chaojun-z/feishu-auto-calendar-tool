@@ -6,7 +6,6 @@ app.use(express.json());
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID;
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET;
 
-// 获取飞书访问令牌
 async function getAccessToken() {
   const res = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     app_id: FEISHU_APP_ID,
@@ -15,7 +14,6 @@ async function getAccessToken() {
   return res.data.tenant_access_token;
 }
 
-// 创建日历事件
 async function createCalendarEvent(token, summary, startTime, endTime) {
   const res = await axios.post('https://open.feishu.cn/open-apis/calendar/v4/calendars/primary/events', {
     summary,
@@ -27,23 +25,28 @@ async function createCalendarEvent(token, summary, startTime, endTime) {
   return res.data;
 }
 
-// Webhook 入口
 app.post('/webhook', async (req, res) => {
-  const { type, event } = req.body;
-  if (type === 'url_verification') {
-    return res.json({ challenge: req.body.challenge });
-  }
-  if (event && event.message) {
-    const text = JSON.parse(event.message.content).text;
-    const token = await getAccessToken();
-    // 简单解析：格式 "创建日程 标题 开始时间 结束时间"
-    const parts = text.split(' ');
-    if (parts[0] === '创建日程' && parts.length >= 4) {
-      await createCalendarEvent(token, parts[1], parts[2], parts[3]);
-      return res.json({ msg: '日程创建成功' });
+  try {
+    const body = req.body;
+    // 飞书URL验证
+    if (body.type === 'url_verification') {
+      return res.json({ challenge: body.challenge });
     }
+    // 处理消息事件
+    if (body.header && body.header.event_type === 'im.message.receive_v1') {
+      const msgContent = JSON.parse(body.event.message.content);
+      const text = msgContent.text.trim();
+      const parts = text.split(' ');
+      if (parts[0] === '创建日程' && parts.length >= 4) {
+        const token = await getAccessToken();
+        await createCalendarEvent(token, parts[1], parts[2], parts[3]);
+      }
+    }
+    return res.json({ code: 0 });
+  } catch (err) {
+    console.error(err);
+    return res.json({ code: 0 });
   }
-  res.json({ msg: 'ok' });
 });
 
 app.get('/', (req, res) => res.send('飞书日历机器人运行中 🎉'));
